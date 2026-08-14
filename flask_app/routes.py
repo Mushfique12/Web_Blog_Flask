@@ -1,6 +1,9 @@
+import os
+import secrets
+from PIL import Image
 from flask import render_template, flash, redirect, url_for, request
 from flask_app import app, db, bcrypt
-from flask_app.forms import RegistrationForm, LoginForm
+from flask_app.forms import RegistrationForm, LoginForm, UpdateAccountForm
 from flask_app.models import User, Post
 from flask_login import login_user, current_user, logout_user, login_required
 
@@ -55,7 +58,7 @@ def register():
 
 @app.route("/login", methods=['GET', 'POST'])
 def login():
-    # Redirects to Home Page is user is logged in correctly
+    # Redirects to Home Page if user is logged in correctly
     if current_user.is_authenticated:
         return redirect(url_for('home'))
     
@@ -87,8 +90,54 @@ def logout():
 
     return redirect(url_for('home'))
 
-@app.route("/account")
+# Function to resize & save the profile picture uploaded by the user
+def save_picture(form_picture):
+    # Generates a random hex to avoid filename conflicts and maintain uniqueness
+    random_hex = secrets.token_hex(8)
+    # Splits the filename into name and extension - the extension is needed to save the file in the correct format
+    _, f_ext = os.path.splitext(form_picture.filename)
+    picture_fn = random_hex + f_ext
+    # Creates the path to save the profile picture in the static/profile_pics directory
+    picture_path = os.path.join(app.root_path, 'static/profile_pics', picture_fn)
+
+    # Resize the image to a smaller size to save space and improve performance
+    output_size = (125, 125)
+    i = Image.open(form_picture)
+    i.thumbnail(output_size)
+    i.save(picture_path)
+
+    return picture_fn
+
+@app.route("/account", methods=['GET', 'POST'])
 # Tells the user that Login is required to access this page/route. The login route is specified by "login_view" in the __init__.py file
 @login_required
 def account():
-    return render_template("account.html", title="Account")
+    # Uses the Form to extract the User Input Data
+    form = UpdateAccountForm()
+    # Validates the form using the Validators defined in the UpdateAccountForm class
+    if form.validate_on_submit():
+        # Checks if the user has uploaded a new profile picture
+        if form.picture.data:
+            # Saves the new profile picture and updates the current user's image_file attribute
+            picture_file = save_picture(form.picture.data)
+            current_user.image_file = picture_file
+
+        # Updates the current user's username and email attributes with the new values from the form
+        current_user.username = form.username.data
+        current_user.email = form.email.data
+        db.session.commit()
+
+        # Provides a Flash Message after successful account update. Built-in category for Bootstrap
+        flash('Your account has been updated!', 'success')
+
+        return redirect(url_for('account'))
+    elif request.method == 'GET':
+        # Pre-populates the form fields with the current user's username and email when the page is loaded for the first time
+        form.username.data = current_user.username
+        form.email.data = current_user.email
+
+    # Generates the URL for the current user's profile picture to be displayed on the account page
+    image_file = url_for('static', filename='profile_pics/' + current_user.image_file)
+
+    # Renders the account.html template with the title, image_file, and form parameters
+    return render_template("account.html", title="Account", image_file=image_file, form=form)
