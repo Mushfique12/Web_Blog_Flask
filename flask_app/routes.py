@@ -11,8 +11,10 @@ from flask_login import login_user, current_user, logout_user, login_required
 @app.route("/")
 @app.route("/home")
 def home():
-    # Queries all the posts from the database and passes them to the home.html template to be displayed
-    posts = Post.query.all()
+    # Gets the page number from the query parameters, defaulting to 1 if not provided
+    page = request.args.get('page', 1, type=int)
+    # Queries the Post model to get all posts, paginated with 5 posts per page. The posts are ordered by the date they were posted in descending order (newest first)
+    posts = Post.query.order_by(Post.date_posted.desc()).paginate(per_page=5, page=page)
     return render_template("home.html", posts=posts)
 
 # Creates the About Page route
@@ -192,3 +194,15 @@ def delete_post(post_id):
     db.session.commit()
     flash('Your post has been deleted!', 'success')
     return redirect(url_for('home'))
+
+# Creates the User Posts route to display all posts by a specific user
+@app.route("/user/<string:username>")
+def user_posts(username):
+    # Gets the page number from the query parameters, defaulting to 1 if not provided
+    page = request.args.get('page', 1, type=int)
+    user = User.query.filter_by(username=username).first_or_404()
+    # The query filters the posts by the author (user) and orders them by the date they were posted in descending order. The results are then paginated to show 5 posts per page, based on the current page number.
+    posts = Post.query.filter_by(author=user)\
+        .order_by(Post.date_posted.desc())\
+        .paginate(per_page=5, page=page)
+    return render_template("user_posts.html", posts=posts, user=user)
