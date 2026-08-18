@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
-from flask_app import db, login_manager
+from itsdangerous import URLSafeTimedSerializer as Serializer
+from flask_app import db, login_manager, app
 from flask_login import UserMixin
 
 # Function to reload user from user ID stored in the Database
@@ -20,6 +21,21 @@ class User(db.Model, UserMixin):
     # Its a relationship, no column is created. It runs an additional Query in the background for all posts the user created
     # Post is capitalized since it refers to the class Post
     posts = db.relationship('Post', backref='author', lazy=True)
+
+    # Generates a token for password reset functionality using the user's ID and the app's secret key.
+    def get_reset_token(self):
+        s = Serializer(app.config['SECRET_KEY'])
+        return s.dumps({'user_id': self.id})
+
+    # Verifies the reset token by decoding it and checking if it is valid and not expired. If valid, it returns the user associated with the token; otherwise, it returns None. The token expires after a specified time (default is 1800 seconds or 30 minutes).
+    @staticmethod
+    def verify_reset_token(token, expires_sec=1800):
+        s = Serializer(app.config['SECRET_KEY'])
+        try:
+            user_id = s.loads(token, max_age=expires_sec)['user_id']
+        except:
+            return None
+        return User.query.get(user_id)
 
     def __repr__(self):
         return f"User('{self.username}', '{self.email}', '{self.image_file}')"

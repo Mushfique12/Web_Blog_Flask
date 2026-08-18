@@ -2,10 +2,11 @@ import os
 import secrets
 from PIL import Image
 from flask import render_template, flash, redirect, url_for, request, abort
-from flask_app import app, db, bcrypt
-from flask_app.forms import RegistrationForm, LoginForm, UpdateAccountForm, PostForm
+from flask_app import app, db, bcrypt, mail
+from flask_app.forms import RegistrationForm, LoginForm, UpdateAccountForm, PostForm, RequestResetForm, ResetPasswordForm
 from flask_app.models import User, Post
 from flask_login import login_user, current_user, logout_user, login_required
+from flask_mail import Message
 
 # Creates the Home Page and About Page routes
 @app.route("/")
@@ -206,3 +207,65 @@ def user_posts(username):
         .order_by(Post.date_posted.desc())\
         .paginate(per_page=5, page=page)
     return render_template("user_posts.html", posts=posts, user=user)
+
+# Function to send a password reset email to the user
+def send_reset_email(user):
+    # Generates a password reset token for the user using the get_reset_token method defined in the User model
+    token = user.get_reset_token()
+    # Creates a new email message with the subject, sender, and recipient information. The sender is set to 'noreply@blog.com'
+    msg = Message('Password Reset Request',
+                   sender=("My App", "noreply@example.com"),
+                   recipients=[user.email])
+    # Sets the body of the email message to include the password reset link with the generated token
+    msg.body = f'''To reset your password, visit the following link:
+{url_for('reset_token', token=token, _external=True)}
+
+If you did not make this request then simply ignore this email and no changes will be made.
+'''
+    # Sends the email message using the mail instance
+    mail.send(msg)
+
+# Creates the Reset Password Request route to allow users to request a password reset email
+@app.route("/reset_password", methods=['GET', 'POST'])
+def reset_request():
+    # Redirects to Home Page if user is logged in correctly. Need to log out to reset password
+    if current_user.is_authenticated:
+        return redirect(url_for('home'))
+
+    form = RequestResetForm()
+
+    # Validates the form using the Validators defined in the RequestResetForm class
+    if form.validate_on_submit():
+        user = User.query.filter_by(email=form.email.data).first()
+        # Sends the password reset email to the user
+        send_reset_email(user)
+        flash('An email has been sent with instructions to reset your password.', 'info')
+        return redirect(url_for('login'))
+    
+    return render_template("reset_request.html", title='Reset Password', form=form)
+
+# Creates the Reset Password route to allow users to reset their password using the token sent in the email
+@app.route("/reset_password/<token>", methods=['GET', 'POST'])
+def reset_token(token):
+    # Redirects to Home Page if user is logged in correctly. Need to log out to reset password
+    if current_user.is_authenticated:
+        return redirect(url_for('home'))
+
+    # Verifies the reset token and retrieves the user associated with it. If the token is invalid or expired, it flashes a message and redirects to the reset request page.
+    user = User.verify_reset_token(token)
+    if user is None:
+        flash('That is an invalid or expired token', 'warning')
+        return redirect(url_for('reset_request'))
+
+    form = ResetPasswordForm()
+
+    # Validates the form using the Validators defined in the ResetPasswordForm class
+    if form.validate_on_submit():
+        # Hashes the new password provided by the user and updates the user's password in the database. After committing the changes, it flashes a success message and redirects to the login page.
+        hashed_password = bcrypt.generate_password_hash(form.password.data).decode('utf-8')
+        user.password = hashed_password
+        db.session.commit()
+        flash('Your password has been updated! You are now able to log in', 'success')
+        return redirect(url_for('login'))
+    
+    return render_template("reset_token.html", title='Reset Password', form=form)
