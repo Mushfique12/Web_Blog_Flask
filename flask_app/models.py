@@ -1,7 +1,8 @@
 from datetime import datetime, timezone
 from itsdangerous import URLSafeTimedSerializer as Serializer
-from flask_app import db, login_manager, app
+from flask_app import db, login_manager
 from flask_login import UserMixin
+from flask import current_app as app
 
 # Function to reload user from user ID stored in the Database
 @login_manager.user_loader
